@@ -1,13 +1,11 @@
 FROM golang:1.11.5-alpine3.9 as build
-RUN apk add curl git
-RUN curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 ENV GOBIN /go/bin
-WORKDIR /go/src/girhub.com/bob-crutchley
+RUN apk add git
+RUN go get github.com/go-redis/redis
+WORKDIR /go/src/github.com/bob-crutchley/session-token-manager
 COPY . .
-RUN dep init
-RUN go install session-token-manager.go
+RUN go install
 FROM alpine:3.9
-WORKDIR /app
-COPY --from=build /go/bin/session-token-manager .
+COPY --from=build /go/bin/session-token-manager /go/bin/session-token-manager
 EXPOSE 8000
-ENTRYPOINT ["./session-token-manager"]
+ENTRYPOINT ["/go/bin/session-token-manager"]

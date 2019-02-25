@@ -1,8 +1,12 @@
 version: '3.7'
 services:
-  session-manager:
+  session-token-manager:
     image: bobcrutchley/session-manager:latest
-    build: .
+    build: 
+      context: .
+      args:
+      - AUTHOR=bob-crutchley
+      - PROJECT=session-token-manager
     depends_on:
     - aes-crypto
     - session-token-redis
