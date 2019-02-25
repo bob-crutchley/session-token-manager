@@ -1,0 +1,13 @@
+version: '3.7'
+services:
+  session-manager:
+    image: bobcrutchley/session-manager:latest
+    build: .
+    depends_on:
+    - aes-crypto
+    - session-token-redis
+  aes-crypto:
+    image: bobcrutchley/aes-crypto:latest
+  session-token-redis:
+    image: redis:latest
+  
