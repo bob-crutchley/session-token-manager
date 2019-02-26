@@ -28,7 +28,9 @@ import (
 	"crypto/sha1"
 	"net/http"
 	"encoding/json"
-)
+	"log"
+	"io"
+) 
 
 func main() {
 	client := redis.NewClient(&redis.Options {
@@ -36,41 +38,60 @@ func main() {
 		Password: "",
 		DB: 0,
 	})
-	sha1hash := sha1.New()
-	sha1hash.Write([]byte("string"))
-	bs := sha1hash.Sum(nil)
 	// submit to redis
-	err := client.Set("key", bs, 0).Err()
+	err := client.Set("key", "value", 0).Err()
 	val, err := client.Get("key").Result()
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("key", val)
+	http.HandleFunc("/create", createSessionToken)
+	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
 type Message struct {
 	Data []byte `json:"data"`
 }
 
-func parseRequestBody(w http.ResponseWriter, body io.Reader) ([]byte, error) {
+type ResponseMessage struct {
+	Data string `json:"data"`
+}
+
+func parseRequestBody(body io.Reader) ([]byte, error) {
 	decoder := json.NewDecoder(body)
 	var message Message
 	err := decoder.Decode(&message)
 	return message.Data, err
 }
 
-func writeMessageResponse(w http.ResponseWriter, message Message) (error) {
+func writeMessageResponse(w http.ResponseWriter, message ResponseMessage) (error) {
  	w.Header().Set("Content-Type", "application/json")
 	messageJson, err := json.Marshal(message)
  	w.Write(messageJson)
 	return err
 }
 
-func create(w http.ResponseWriter, r *http.Request) {
-	sessionData := parseRequestBody(w, r.Body)
+func createSessionToken(w http.ResponseWriter, r *http.Request) {
+	sessionData, err := parseRequestBody(r.Body)
+	print(sessionData)	
 	if err != nil {
-		fmt.Println(err)	
+		http.Error(w, err.Error(), 500)
+		return
 	}
+	sha1hash := sha1.New()
+	sha1hash.Write(sessionData)
+	bs := sha1hash.Sum(nil)
+	print(bs)
+	var message ResponseMessage
+	message.Data = string(bs)
+	writeMessageResponse(w, message)
+}
+
+func deleteSessionToken() {
+
+}
+
+func validateSessionToken() {
 
 }
 
