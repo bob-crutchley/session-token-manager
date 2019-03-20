@@ -3,12 +3,7 @@ package main
 /*
 TODO
 create
-	accept a request containing session data
-	create sha1 hash of session data
-	get session data encrypted
 	store in redis with expiry time (24hrs for now)
-		key: sha1 hash
-		value: encrypted session data
 delete
 	accept post request with session token 
 	decrypt data
@@ -30,17 +25,18 @@ import (
 	"encoding/json"
 	"log"
 	"io"
+	"bytes"
 ) 
-
+var redisClient *redis.Client
 func main() {
-	client := redis.NewClient(&redis.Options {
+	redisClient = redis.NewClient(&redis.Options {
 		Addr: "session-token-redis:6379",
 		Password: "",
 		DB: 0,
 	})
 	// submit to redis
-	err := client.Set("key", "value", 0).Err()
-	val, err := client.Get("key").Result()
+	err := redisClient.Set("key", "value", 0).Err()
+	val, err := redisClient.Get("key").Result()
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -57,14 +53,14 @@ type ResponseMessage struct {
 	Data string `json:"data"`
 }
 
-func parseRequestBody(body io.Reader) ([]byte, error) {
+func parseRequestBody(body io.Reader) (Message, error) {
 	decoder := json.NewDecoder(body)
 	var message Message
 	err := decoder.Decode(&message)
-	return message.Data, err
+	return message, err
 }
 
-func writeMessageResponse(w http.ResponseWriter, message ResponseMessage) (error) {
+func writeMessageResponse(w http.ResponseWriter, message Message) (error) {
  	w.Header().Set("Content-Type", "application/json")
 	messageJson, err := json.Marshal(message)
  	w.Write(messageJson)
@@ -72,18 +68,47 @@ func writeMessageResponse(w http.ResponseWriter, message ResponseMessage) (error
 }
 
 func createSessionToken(w http.ResponseWriter, r *http.Request) {
-	sessionData, err := parseRequestBody(r.Body)
-	print(sessionData)	
+	session, err := parseRequestBody(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+
+	fmt.Println(session.Data)
+	sessionBytesRepresentation, err := json.Marshal(session)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	resp, err := http.Post("http://aes-crypto:8000/encrypt", "application/json", bytes.NewBuffer(sessionBytesRepresentation))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	var encryptedMessage Message
+	json.NewDecoder(resp.Body).Decode(&encryptedMessage)
+	fmt.Println(encryptedMessage.Data)
+
 	sha1hash := sha1.New()
-	sha1hash.Write(sessionData)
+	sha1hash.Write(session.Data)
 	bs := sha1hash.Sum(nil)
-	print(bs)
-	var message ResponseMessage
-	message.Data = string(bs)
+	fmt.Println(bs)
+
+	err = redisClient.Set(string(bs), encryptedMessage.Data, 0).Err()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	val, err := redisClient.Get(string(bs)).Result()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	fmt.Println(bs, val)
+
+	var message Message
+	message.Data = bs
 	writeMessageResponse(w, message)
 }
 
