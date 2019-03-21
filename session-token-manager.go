@@ -24,6 +24,7 @@ import (
 	"io"
 	"bytes"
 	"time"
+	"fmt"
 ) 
 
 var redisClient *redis.Client
@@ -31,6 +32,7 @@ var redisClient *redis.Client
 func main() {
 	redisClient = getRedisClient()
 	http.HandleFunc("/create", createSessionToken)
+	http.HandleFunc("/getsession", getSession)
 	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
@@ -103,7 +105,39 @@ func deleteSessionToken() {
 
 }
 
-func validateSessionToken() {
+func getSession(w http.ResponseWriter, r *http.Request) {
+	sessionRequest, err := parseRequestBody(r.Body)
+	if err != nil {
+		sessionTokenCreationFailure(w)
+		return
+	}
+	sessionRequestKey := sessionRequest.Data
+	fmt.Println(sessionRequestKey)
 
+	encryptedSessionData, err := redisClient.Get(string(sessionRequestKey)).Result()
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("key", encryptedSessionData)
+
+	var encryptedSession Message
+	encryptedSession.Data = []byte(encryptedSessionData)
+
+	encryptedSessionBytesRepresentation, err := json.Marshal(encryptedSession)
+	if err != nil {
+		sessionTokenCreationFailure(w)
+		return
+	}
+
+	resp, err := http.Post("http://aes-crypto:8000/decrypt", "application/json", bytes.NewBuffer(encryptedSessionBytesRepresentation))
+	if err != nil {
+		sessionTokenCreationFailure(w)
+		return
+	}
+
+	var session Message
+	json.NewDecoder(resp.Body).Decode(&session)
+	fmt.Println(session.Data)
+	writeMessageResponse(w, session)
 }
 
