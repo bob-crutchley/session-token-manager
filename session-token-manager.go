@@ -7,12 +7,6 @@ delete
 	decrypt data
 	create sha1 hash of data
 	delete from redis using sha1 as key
-validate
-	accept post request with session token 
-	decrypt data
-	create sha1 hash of data
-	search redis by sha1 as key
-	if the session exists, then valid
 */
 
 import (
@@ -24,7 +18,6 @@ import (
 	"io"
 	"bytes"
 	"time"
-	"fmt"
 ) 
 
 var redisClient *redis.Client
@@ -105,39 +98,41 @@ func deleteSessionToken() {
 
 }
 
+func sessionRetreivalFailure(w http.ResponseWriter) {
+		http.Error(w, "failed to retrieve session token", 500)
+}
+
 func getSession(w http.ResponseWriter, r *http.Request) {
 	sessionRequest, err := parseRequestBody(r.Body)
 	if err != nil {
-		sessionTokenCreationFailure(w)
+		sessionRetreivalFailure(w)
 		return
 	}
 	sessionRequestKey := sessionRequest.Data
-	fmt.Println(sessionRequestKey)
 
 	encryptedSessionData, err := redisClient.Get(string(sessionRequestKey)).Result()
 	if err != nil {
+		sessionRetreivalFailure(w)
 		fmt.Println(err)
 	}
-	fmt.Println("key", encryptedSessionData)
 
 	var encryptedSession Message
 	encryptedSession.Data = []byte(encryptedSessionData)
 
 	encryptedSessionBytesRepresentation, err := json.Marshal(encryptedSession)
 	if err != nil {
-		sessionTokenCreationFailure(w)
+		sessionRetreivalFailure(w)
 		return
 	}
 
 	resp, err := http.Post("http://aes-crypto:8000/decrypt", "application/json", bytes.NewBuffer(encryptedSessionBytesRepresentation))
 	if err != nil {
-		sessionTokenCreationFailure(w)
+		sessionRetreivalFailure(w)
 		return
 	}
 
 	var session Message
 	json.NewDecoder(resp.Body).Decode(&session)
-	fmt.Println(session.Data)
 	writeMessageResponse(w, session)
 }
 
