@@ -16,7 +16,6 @@ validate
 */
 
 import (
-	"fmt"
 	"github.com/go-redis/redis"
 	"crypto/sha1"
 	"net/http"
@@ -65,6 +64,12 @@ func sessionTokenCreationFailure(w http.ResponseWriter) {
 		http.Error(w, "failed to create session token", 500)
 }
 
+func getSha1Hash(data []byte) ([]byte) {
+	sha1hash := sha1.New()
+	sha1hash.Write(data)
+	return sha1hash.Sum(nil)
+}
+
 func createSessionToken(w http.ResponseWriter, r *http.Request) {
 	newSession, err := parseRequestBody(r.Body)
 	if err != nil {
@@ -83,27 +88,14 @@ func createSessionToken(w http.ResponseWriter, r *http.Request) {
 	}
 	var encryptedMessage Message
 	json.NewDecoder(resp.Body).Decode(&encryptedMessage)
-	fmt.Println(encryptedMessage.Data)
-
-	sha1hash := sha1.New()
-	sha1hash.Write(encryptedMessage.Data)
-	bs := sha1hash.Sum(nil)
-	fmt.Println(bs)
-
-	err = redisClient.Set(string(bs), encryptedMessage.Data, 24 * time.Hour).Err()
+	sessionTokenKey := getSha1Hash(encryptedMessage.Data)
+	err = redisClient.Set(string(sessionTokenKey), encryptedMessage.Data, 24 * time.Hour).Err()
 	if err != nil {
 		sessionTokenCreationFailure(w)
 		return
 	}
-	val, err := redisClient.Get(string(bs)).Result()
-	if err != nil {
-		sessionTokenCreationFailure(w)
-		return
-	}
-	fmt.Println(bs, val)
-
 	var message Message
-	message.Data = bs
+	message.Data = sessionTokenKey
 	writeMessageResponse(w, message)
 }
 
