@@ -2,8 +2,6 @@ package main
 
 /*
 TODO
-create
-	store in redis with expiry time (24hrs for now)
 delete
 	accept post request with session token 
 	decrypt data
@@ -26,31 +24,27 @@ import (
 	"log"
 	"io"
 	"bytes"
+	"time"
 ) 
+
 var redisClient *redis.Client
+
 func main() {
-	redisClient = redis.NewClient(&redis.Options {
-		Addr: "session-token-redis:6379",
-		Password: "",
-		DB: 0,
-	})
-	// submit to redis
-	err := redisClient.Set("key", "value", 0).Err()
-	val, err := redisClient.Get("key").Result()
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("key", val)
+	redisClient = getRedisClient()
 	http.HandleFunc("/create", createSessionToken)
 	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
-type Message struct {
-	Data []byte `json:"data"`
+func getRedisClient() (*redis.Client) {
+	return redis.NewClient(&redis.Options {
+		Addr: "session-token-redis:6379",
+		Password: "",
+		DB: 0,
+	})
 }
 
-type ResponseMessage struct {
-	Data string `json:"data"`
+type Message struct {
+	Data []byte `json:"data"`
 }
 
 func parseRequestBody(body io.Reader) (Message, error) {
@@ -67,23 +61,24 @@ func writeMessageResponse(w http.ResponseWriter, message Message) (error) {
 	return err
 }
 
+func sessionTokenCreationFailure(w http.ResponseWriter) {
+		http.Error(w, "failed to create session token", 500)
+}
+
 func createSessionToken(w http.ResponseWriter, r *http.Request) {
-	session, err := parseRequestBody(r.Body)
+	newSession, err := parseRequestBody(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		sessionTokenCreationFailure(w)
 		return
 	}
-
-	fmt.Println(session.Data)
-	sessionBytesRepresentation, err := json.Marshal(session)
+	newSessionBytesRepresentation, err := json.Marshal(newSession)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		sessionTokenCreationFailure(w)
 		return
 	}
-
-	resp, err := http.Post("http://aes-crypto:8000/encrypt", "application/json", bytes.NewBuffer(sessionBytesRepresentation))
+	resp, err := http.Post("http://aes-crypto:8000/encrypt", "application/json", bytes.NewBuffer(newSessionBytesRepresentation))
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		sessionTokenCreationFailure(w)
 		return
 	}
 	var encryptedMessage Message
@@ -91,18 +86,18 @@ func createSessionToken(w http.ResponseWriter, r *http.Request) {
 	fmt.Println(encryptedMessage.Data)
 
 	sha1hash := sha1.New()
-	sha1hash.Write(session.Data)
+	sha1hash.Write(encryptedMessage.Data)
 	bs := sha1hash.Sum(nil)
 	fmt.Println(bs)
 
-	err = redisClient.Set(string(bs), encryptedMessage.Data, 0).Err()
+	err = redisClient.Set(string(bs), encryptedMessage.Data, 24 * time.Hour).Err()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		sessionTokenCreationFailure(w)
 		return
 	}
 	val, err := redisClient.Get(string(bs)).Result()
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		sessionTokenCreationFailure(w)
 		return
 	}
 	fmt.Println(bs, val)
